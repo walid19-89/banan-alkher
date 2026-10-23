@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ImagePlus, Save, ShieldCheck, Users, Wallet, History, Trash2 } from "lucide-react";
+import { ImagePlus, Save, ShieldCheck, Users, Wallet, History, Trash2, DatabaseBackup } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,18 @@ import {
 import { Card, Empty, Field, PageHeader, Pill, tableCls } from "@/components/fund/ui";
 import { FundEmblem } from "@/components/fund/Brand";
 import { errMsg, imageToDataUrl, settingsQuery, useMe, can } from "@/lib/fund";
-import { fmtDateTime, ROLE_LABELS, type FundRole } from "@/lib/format";
+import {
+  exportCSV,
+  fmtDateTime,
+  ROLE_LABELS,
+  todayISO,
+  CATEGORY_LABELS,
+  EXPENSE_STATUS_LABELS,
+  METHOD_LABELS,
+  RECEIPT_TYPE_LABELS,
+  SUB_STATUS_LABELS,
+  type FundRole,
+} from "@/lib/format";
 import {
   auditLogsQuery,
   membersQuery,
@@ -65,6 +76,7 @@ function AdminPage() {
         members={members}
         onChange={inv}
       />
+      {isAdmin && <BackupCard />}
 
       <Card title="سجل التغييرات (Audit Log)">
         <p className="mb-3 text-xs text-muted-foreground">
@@ -435,4 +447,112 @@ function UsersCard({
       </div>
     </Card>
   );
+}
+
+/** Full CSV backup: exports every main table as a separate file, admin only. */
+function BackupCard() {
+  const [busy, setBusy] = useState(false);
+
+  async function backup() {
+    setBusy(true);
+    try {
+      const day = todayISO();
+      const yn = (v: unknown) => (v ? "نعم" : "لا");
+      const tables: { file: string; table: string; headers: string[]; order: string; map?: (r: any) => (string | number | null)[] }[] = [
+        {
+          file: `backup-members-${day}`,
+          table: "fund_members",
+          order: "member_no",
+          headers: ["رقم العضو", "الاسم", "الهاتف", "العنوان", "الاشتراك الشهري", "تاريخ الانضمام", "نشط؟", "ملاحظات"],
+          map: (r) => [r.member_no, r.full_name, r.phone, r.address, r.monthly_fee, r.joined_on, yn(r.active), r.notes],
+        },
+        {
+          file: `backup-subscriptions-${day}`,
+          table: "fund_subscriptions",
+          order: "due_month",
+          headers: ["الشهر", "المستحق", "المسدد", "الحالة"],
+          map: (r) => [r.due_month, r.amount, r.paid_amount, SUB_STATUS_LABELS[String(r.status)] ?? r.status],
+        },
+        {
+          file: `backup-receipts-${day}`,
+          table: "fund_receipts",
+          order: "receipt_no",
+          headers: ["رقم السند", "التاريخ", "النوع", "الدافع", "المبلغ", "طريقة الدفع", "مقيد؟", "الغرض المقيد", "ملاحظات"],
+          map: (r) => [
+            r.receipt_no,
+            r.receipt_date,
+            RECEIPT_TYPE_LABELS[String(r.receipt_type)] ?? r.receipt_type,
+            r.donor_name,
+            r.amount,
+            METHOD_LABELS[String(r.payment_method)] ?? r.payment_method,
+            yn(r.is_restricted),
+            r.restricted_purpose,
+            r.notes,
+          ],
+        },
+        {
+          file: `backup-expenses-${day}`,
+          table: "fund_expense_requests",
+          order: "request_no",
+          headers: ["رقم الطلب", "تاريخ الطلب", "التصنيف", "المستفيد", "الوصف", "المبلغ", "الحالة", "تاريخ الصرف", "رقم سند الصرف"],
+          map: (r) => [
+            r.request_no,
+            r.requested_date,
+            CATEGORY_LABELS[String(r.category)] ?? r.category,
+            r.beneficiary,
+            r.description,
+            r.amount,
+            EXPENSE_STATUS_LABELS[String(r.status)] ?? r.status,
+            r.disbursed_at,
+            r.voucher_no,
+          ],
+        },
+        {
+          file: `backup-audit-${day}`,
+          table: "fund_audit_logs",
+          order: "created_at",
+          headers: ["التاريخ والوقت", "الحدث", "النوع", "معرّف السجل", "المستخدم", "التفاصيل"],
+          map: (r) => [r.created_at, r.action, r.entity_type, r.entity_id, r.actor_name ?? r.actor_id, r.details],
+        },
+      ];
+      for (const [i, t] of tables.entries()) {
+        const raw = await fetchAll(t.table, t.order);
+        const rows: (string | number | null)[][] = raw.map((r: any) => (t.map ? t.map(r) : (Object.values(r) as (string | number | null)[])));
+        exportCSV(t.file, t.headers, rows);
+        if (i < tables.length - 1) await new Promise((r) => setTimeout(r, 400));
+      }
+      toast.success(`تم تنزيل النسخة الاحتياطية (${tables.length} ملفات Excel)`);
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card title="النسخة الاحتياطية">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-xl text-sm text-muted-foreground">
+          تصدير كل بيانات الصندوق (الأعضاء، الاشتراكات، سندات القبض، طلبات الصرف، سجل التغييرات) إلى ملفات Excel تُفتح بأي جهاز. يُنصح بأخذ نسخة أسبوعياً وحفظها في مكان آمن.
+        </p>
+        <Button variant="soft" disabled={busy} onClick={backup}>
+          <DatabaseBackup /> {busy ? "جارٍ التصدير…" : "تنزيل نسخة احتياطية كاملة"}
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+async function fetchAll(table: string, order: string): Promise<any[]> {
+  const PAGE = 1000;
+  const out: any[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const fromFn = supabase.from as unknown as (t: string) => ReturnType<typeof supabase.from>;
+    const { data, error } = await fromFn(table).select("*").order(order).range(from, from + PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    out.push(...(data as any[]));
+    if (data.length < PAGE) break;
+  }
+  return out;
 }

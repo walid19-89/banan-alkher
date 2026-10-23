@@ -14,6 +14,7 @@ import {
   CreditCard,
   Search,
   FileText,
+  MessageCircle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -33,7 +34,7 @@ import { Card, Empty, Kpi, PageHeader, Pill, tableCls } from "@/components/fund/
 import { MemberDialog } from "@/components/fund/MemberDialog";
 import { GenerateDuesDialog, PaySubscriptionDialog } from "@/components/fund/dialogs";
 import { settingsQuery, useMe, can } from "@/lib/fund";
-import { exportCSV, fmtDate, fmtMonth, money, SUB_STATUS_LABELS } from "@/lib/format";
+import { exportCSV, fmtDate, fmtMonth, money, whatsappLink, FUND_NAME, SUB_STATUS_LABELS } from "@/lib/format";
 import {
   memberArrears,
   membersQuery,
@@ -212,7 +213,33 @@ function MembersPage() {
                       <td className="tabular text-muted-foreground">{m.member_no ?? "—"}</td>
                       <td className="font-semibold">{m.full_name}</td>
                       <td className="tabular" dir="ltr">
-                        {m.phone || "—"}
+                        {m.phone ? (
+                          <div className="flex items-center gap-1">
+                            <a href={`tel:${m.phone}`} className="hover:underline" title="اتصال">{m.phone}</a>
+                            {(() => {
+                              const wa = whatsappLink(
+                                m.phone,
+                                m.full_name,
+                                arrears > 0
+                                  ? `نود تذكيركم بوجود متأخرات اشتراكات بمبلغ ${money(arrears)} على حسابكم في ${FUND_NAME}. نتمنى المباشرة بالسداد، وشكراً تعاونكم.`
+                                  : undefined,
+                              );
+                              return wa ? (
+                                <a
+                                  href={wa}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  title="مراسلة واتساب"
+                                  className="inline-flex rounded-full p-1 text-success hover:bg-success-soft"
+                                >
+                                  <MessageCircle className="h-4 w-4" />
+                                </a>
+                              ) : null;
+                            })()}
+                          </div>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td className="tabular">{money(m.monthly_fee)}</td>
                       <td className="tabular">{fmtDate(m.joined_on)}</td>
