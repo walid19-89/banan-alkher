@@ -40,13 +40,19 @@ function AuthPage() {
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
-    if (error) return toast.error("بيانات الدخول غير صحيحة");
+    if (error) {
+      toast.error("بيانات الدخول غير صحيحة");
+      return;
+    }
     navigate({ to: "/dashboard", replace: true });
   }
 
   async function signUp(e: React.FormEvent) {
     e.preventDefault();
-    if (password.length < 6) return toast.error("كلمة المرور يجب ألا تقل عن 6 أحرف");
+    if (password.length < 6) {
+      toast.error("كلمة المرور يجب ألا تقل عن 6 أحرف");
+      return;
+    }
     setLoading(true);
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -54,7 +60,10 @@ function AuthPage() {
       options: { emailRedirectTo: window.location.origin + "/dashboard", data: { full_name: fullName } },
     });
     setLoading(false);
-    if (error) return toast.error(error.message);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     if (data.session) navigate({ to: "/dashboard", replace: true });
     else toast.success("تم إنشاء الحساب. يرجى تأكيد بريدك الإلكتروني عبر الرابط المرسل ثم تسجيل الدخول.");
   }
