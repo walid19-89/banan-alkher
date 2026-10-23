@@ -1,7 +1,7 @@
 import { useBranding } from "@/lib/fund";
 import { cn } from "@/lib/utils";
 
-export function FundEmblem({ className }: { className?: string }) {
+export function FundEmblem({ className }: { className?: string | undefined }) {
   return (
     <svg viewBox="0 0 64 64" className={className} aria-hidden>
       <circle cx="32" cy="32" r="30" fill="var(--primary)" />
@@ -14,7 +14,7 @@ export function FundEmblem({ className }: { className?: string }) {
   );
 }
 
-export function FundLogo({ className }: { className?: string }) {
+export function FundLogo({ className }: { className?: string | undefined }) {
   const { data } = useBranding();
   if (data?.logo_url)
     return <img src={data.logo_url} alt="شعار صندوق بنان الخير للبنيان" className={cn("object-contain", className)} />;

@@ -111,12 +111,12 @@ export function amountInWords(n: number): string {
     const parts: string[] = [];
     const h = Math.floor(x / 100);
     const r = x % 100;
-    if (h) parts.push(hundreds[h]);
+    if (h) parts.push(hundreds[h] ?? "");
     if (r) {
-      if (r < 20) parts.push(ones[r]);
+      if (r < 20) parts.push(ones[r] ?? "");
       else {
         const o = r % 10;
-        parts.push(o ? `${ones[o]} و${tens[Math.floor(r / 10)]}` : tens[Math.floor(r / 10)]);
+        parts.push(o ? `${ones[o] ?? ""} و${tens[Math.floor(r / 10)] ?? ""}` : (tens[Math.floor(r / 10)] ?? ""));
       }
     }
     return parts.join(" و");
