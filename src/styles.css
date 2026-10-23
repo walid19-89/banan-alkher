@@ -106,6 +106,56 @@
   --shadow-gold: 0 10px 30px -12px color-mix(in oklab, var(--gold) 55%, transparent);
 }
 
+/* Dark mode palette (activated by adding .dark to <html>) */
+.dark {
+  --radius: 0.85rem;
+  --background: oklch(0.165 0.018 200);
+  --foreground: oklch(0.93 0.012 160);
+  --card: oklch(0.21 0.022 192);
+  --card-foreground: oklch(0.93 0.012 160);
+  --popover: oklch(0.21 0.022 192);
+  --popover-foreground: oklch(0.93 0.012 160);
+  --primary: oklch(0.74 0.1 165);
+  --primary-foreground: oklch(0.17 0.04 168);
+  --primary-soft: oklch(0.28 0.05 168);
+  --gold: oklch(0.79 0.13 75);
+  --gold-foreground: oklch(0.2 0.05 80);
+  --gold-soft: oklch(0.3 0.055 80);
+  --success: oklch(0.72 0.12 155);
+  --success-soft: oklch(0.27 0.05 155);
+  --warning: oklch(0.77 0.12 70);
+  --warning-soft: oklch(0.3 0.05 85);
+  --danger-soft: oklch(0.29 0.06 25);
+  --secondary: oklch(0.26 0.02 200);
+  --secondary-foreground: oklch(0.9 0.01 200);
+  --muted: oklch(0.26 0.02 200);
+  --muted-foreground: oklch(0.68 0.02 210);
+  --accent: oklch(0.28 0.045 168);
+  --accent-foreground: oklch(0.86 0.06 166);
+  --destructive: oklch(0.64 0.18 27);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.3 0.02 195);
+  --input: oklch(0.32 0.02 195);
+  --ring: oklch(0.74 0.1 165);
+  --chart-1: oklch(0.74 0.1 165);
+  --chart-2: oklch(0.79 0.13 75);
+  --chart-3: oklch(0.68 0.1 230);
+  --chart-4: oklch(0.7 0.13 20);
+  --chart-5: oklch(0.7 0.05 250);
+  --sidebar: oklch(0.19 0.028 172);
+  --sidebar-foreground: oklch(0.92 0.02 160);
+  --sidebar-primary: oklch(0.79 0.13 75);
+  --sidebar-primary-foreground: oklch(0.2 0.05 80);
+  --sidebar-accent: oklch(0.25 0.033 170);
+  --sidebar-accent-foreground: oklch(0.95 0.01 160);
+  --sidebar-border: oklch(0.27 0.028 170);
+  --sidebar-ring: oklch(0.79 0.13 75);
+
+  --gradient-hero: linear-gradient(135deg, oklch(0.24 0.06 170), oklch(0.3 0.07 166) 60%, oklch(0.34 0.08 130));
+  --shadow-card: 0 1px 2px oklch(0 0 0 / 25%), 0 8px 24px -12px oklch(0 0 0 / 45%);
+  --shadow-gold: 0 10px 30px -12px color-mix(in oklab, var(--gold) 40%, transparent);
+}
+
 @utility bg-hero {
   background-image: var(--gradient-hero);
 }

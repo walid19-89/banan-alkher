@@ -76,6 +76,29 @@ export function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * Normalize a phone number to international digits (Yemen default country code 967)
+ * for wa.me / tel: links. Returns null when the number is too short to be valid.
+ * Accepts: 05xxxxxxxx, +9675xxxxxxxx, 009675xxxxxxxx, 9675xxxxxxxx, 7xxxxxxxx.
+ */
+export function intlPhone(p: string | null | undefined, country = "967"): string | null {
+  if (!p) return null;
+  let d = p.replace(/[^\d]/g, "");
+  if (!d) return null;
+  if (d.startsWith("00")) d = d.slice(2);
+  if (d.startsWith("0")) d = country + d.slice(1);
+  if (!d.startsWith(country)) d = country + d;
+  return d.length >= 9 && d.length <= 15 ? d : null;
+}
+
+export function whatsappLink(phone: string | null | undefined, name: string, message?: string): string | null {
+  const intl = intlPhone(phone);
+  if (!intl) return null;
+  const text = `السلام عليكم ${name}، ${message ?? "تحية طيبة من " + FUND_NAME}.`;
+  return `https://wa.me/${intl}?text=${encodeURIComponent(text)}`;
+}
+
+
 export function receiptNo(n: number | string): string {
   return `RV-${String(n).padStart(4, "0")}`;
 }

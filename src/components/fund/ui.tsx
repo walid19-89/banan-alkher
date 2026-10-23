@@ -1,7 +1,40 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { CloudOff, RotateCcw } from "lucide-react";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { useBranding } from "@/lib/fund";
 import { cn } from "@/lib/utils";
+
+/**
+ * Red banner shown whenever the Supabase database cannot be reached,
+ * so stale/zero numbers are never mistaken for real values.
+ */
+export function ConnectionBanner() {
+  const qc = useQueryClient();
+  const { isError, isPending, refetch } = useBranding();
+  if (!isError || isPending) return null;
+  return (
+    <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-destructive/40 bg-danger-soft px-4 py-2.5 text-sm font-semibold text-destructive">
+      <span className="flex items-center gap-2">
+        <CloudOff className="h-4 w-4 shrink-0" />
+        تعذر الاتصال بقاعدة البيانات — الأرقام المعروضة قد تكون قديمة أو غير مكتملة. تحقق من اتصال الإنترنت.
+      </span>
+      <Button
+        size="sm"
+        variant="outline"
+        className="border-destructive/40 text-destructive"
+        onClick={() => {
+          qc.invalidateQueries();
+          refetch();
+        }}
+      >
+        <RotateCcw /> إعادة المحاولة
+      </Button>
+    </div>
+  );
+}
 
 export function PageHeader({ title, desc, actions }: { title: string; desc?: string; actions?: ReactNode }) {
   return (
