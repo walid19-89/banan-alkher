@@ -11,6 +11,8 @@ import { ConnectionBanner } from "@/components/fund/ui";
 import { FundLogo } from "@/components/fund/Brand";
 import { FUND_FULL_NAME, FUND_SUBTITLE } from "@/lib/format";
 import { errMsg } from "@/lib/fund";
+import { enterDemoMode, isDemoMode } from "@/lib/demo";
+import { Eye } from "lucide-react";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -34,6 +36,15 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const recoveryRef = useRef(false);
+  // Demo entry is hidden on published Lovable domains so real users never see it.
+  const [showDemo] = useState(
+    () => typeof window === "undefined" || !/lovable\.app$|lovableproject\.com$/.test(window.location.hostname),
+  );
+
+  function enterDemo() {
+    enterDemoMode();
+    navigate({ to: "/dashboard", replace: true });
+  }
 
   useEffect(() => {
     const isRecovery = () => recoveryRef.current || window.location.hash.includes("type=recovery");
@@ -222,6 +233,11 @@ function AuthPage() {
                   <div className="h-px flex-1 bg-border" /> أو <div className="h-px flex-1 bg-border" />
                 </div>
                 <Button variant="outline" className="w-full" onClick={google} disabled={loading}>المتابعة باستخدام Google</Button>
+                {showDemo && !isDemoMode() && (
+                  <Button variant="ghost" className="mt-2 w-full text-muted-foreground" onClick={enterDemo}>
+                    <Eye /> استعراض النظام ببيانات تجريبية (بدون حساب)
+                  </Button>
+                )}
               </>
             )}
           </div>

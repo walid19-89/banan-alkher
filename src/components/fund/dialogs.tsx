@@ -174,28 +174,49 @@ export function DonationDialog({ open, onOpenChange }: DProps) {
   );
 }
 
-export function ExpenseRequestDialog({ open, onOpenChange }: DProps) {
+export function ExpenseRequestDialog({ open, onOpenChange, initial }: DProps & { initial?: import("@/lib/queries").ExpenseRequest | null }) {
   const inv = useInvalidateAll();
   const empty = { category: "social_aid", name: "", phone: "", amount: "", description: "", notes: "" };
   const [f, setF] = useState(empty);
   const [file, setFile] = useState<File | null>(null);
-  useEffect(() => { if (open) { setF(empty); setFile(null); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (open) {
+      setF(
+        initial
+          ? { category: initial.category, name: initial.beneficiary_name, phone: initial.beneficiary_phone ?? "", amount: String(initial.amount ?? ""), description: initial.description ?? "", notes: initial.notes ?? "" }
+          : empty,
+      );
+      setFile(null);
+    }
+  }, [open, initial]); // eslint-disable-line react-hooks/exhaustive-deps
   const m = useMutation({
     mutationFn: async () => {
       const attachment_url = file ? await uploadDoc(file, "expenses") : null;
+      if (initial) {
+        const { error } = await supabase.from("fund_expense_requests").update({
+          category: f.category, beneficiary_name: f.name, beneficiary_phone: f.phone || null, amount: Number(f.amount),
+          description: f.description, notes: f.notes || null, ...(attachment_url ? { attachment_url } : {}),
+        }).eq("id", initial.id);
+        if (error) throw error;
+        return;
+      }
       const { error } = await supabase.from("fund_expense_requests").insert({
         category: f.category, beneficiary_name: f.name, beneficiary_phone: f.phone || null, amount: Number(f.amount),
         description: f.description, notes: f.notes || null, attachment_url,
       });
       if (error) throw error;
     },
-    onSuccess: () => { toast.success("تم إنشاء طلب الصرف وإرساله للاعتماد"); inv(); onOpenChange(false); },
+    onSuccess: () => {
+      toast.success(initial ? "تم حفظ تعديلات الطلب" : "تم إنشاء طلب الصرف وإرساله للاعتماد");
+      inv();
+      onOpenChange(false);
+    },
     onError: (e) => toast.error(errMsg(e)),
   });
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent dir="rtl">
-        <DialogHeader><DialogTitle>طلب صرف / مساعدة جديد</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{initial ? "تعديل طلب صرف (قبل الاعتماد)" : "طلب صرف / مساعدة جديد"}</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <Field label="التصنيف">
@@ -213,7 +234,7 @@ export function ExpenseRequestDialog({ open, onOpenChange }: DProps) {
           <Field label="الوصف / مبررات الطلب"><Textarea rows={3} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></Field>
           <Field label="مستند داعم"><Input type="file" accept="image/*,application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Field>
         </div>
-        <DialogFooter><Button disabled={m.isPending || !f.name || !f.description || !(Number(f.amount) > 0)} onClick={() => m.mutate()}>إرسال للاعتماد</Button></DialogFooter>
+        <DialogFooter><Button disabled={m.isPending || !f.name || !f.description || !(Number(f.amount) > 0)} onClick={() => m.mutate()}>{initial ? "حفظ التعديلات" : "إرسال للاعتماد"}</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   );

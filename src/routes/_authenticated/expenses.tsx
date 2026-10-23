@@ -6,10 +6,13 @@ import {
   Check,
   Clock,
   Download,
+  FileDown,
   HandCoins,
+  Pencil,
   Printer,
   Search,
   ShieldCheck,
+  Trash2,
   Wallet,
   X,
 } from "lucide-react";
@@ -22,7 +25,20 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, Empty, Kpi, PageHeader, Pill, tableCls, type Tone } from "@/components/fund/ui";
 import { ExpenseRequestDialog } from "@/components/fund/dialogs";
 import { PrintDialog, PrintHeader, VoucherBody } from "@/components/fund/Voucher";
+import { ExpenseVoucherPdfDoc } from "@/components/fund/PdfDocs";
+import { exportNodeToPdf } from "@/lib/pdf";
+import { explainWriteError, PolicyHelpDialog } from "@/components/fund/PolicyHelp";
 import { useMe, can, errMsg } from "@/lib/fund";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   CATEGORY_LABELS,
   EXPENSE_STATUS_LABELS,
@@ -60,6 +76,22 @@ function ExpensesPage() {
   const [tab, setTab] = useState("pending");
   const [q, setQ] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [editing, setEditing] = useState<ExpenseRequest | null>(null);
+  const [deleting, setDeleting] = useState<ExpenseRequest | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("fund_expense_requests").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("تم حذف الطلب المعلق");
+      inv();
+      setDeleting(null);
+    },
+    onError: (e) => explainWriteError(e, () => setHelpOpen(true)),
+  });
   const [selected, setSelected] = useState<ExpenseRequest | null>(null);
   const [printing, setPrinting] = useState<ExpenseRequest | null>(null);
 
@@ -292,7 +324,38 @@ function ExpensesPage() {
         )}
       </Card>
 
-      <ExpenseRequestDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <ExpenseRequestDialog
+        key={editing?.id ?? "new"}
+        open={createOpen || !!editing}
+        onOpenChange={(o) => {
+          if (!o) {
+            setCreateOpen(false);
+            setEditing(null);
+          }
+        }}
+        initial={editing}
+      />
+
+      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>حذف الطلب المعلق؟</AlertDialogTitle>
+            <AlertDialogDescription>
+              سيتم حذف طلب الصرف {deleting ? requestNo(deleting.request_no) : ""} الخاص بـ
+              «{deleting?.beneficiary_name}» بمبلغ {deleting ? money(deleting.amount) : ""}. لا يمكن
+              التراجع.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>إلغاء</AlertDialogCancel>
+            <AlertDialogAction onClick={() => deleting && remove.mutate(deleting.id)}>
+              حذف نهائي
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <PolicyHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
 
       <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto" dir="rtl">
@@ -310,6 +373,31 @@ function ExpensesPage() {
               onDecide={(decision, notes) => decide.mutate({ id: selected.id, decision, notes })}
               onDisburse={() => disburse.mutate(selected.id)}
               onPrint={() => setPrinting(selected)}
+              onEdit={() => {
+                setSelected(null);
+                setEditing(selected);
+              }}
+              onDelete={() => {
+                setSelected(null);
+                setDeleting(selected);
+              }}
+              canEdit={selected.status === "pending" && (can(me, ["admin"]) || selected.created_by === me?.user_id)}
+              canDelete={selected.status === "pending" && can(me, ["admin"])}
+              onPdf={async () => {
+                if (!selected) return;
+                try {
+                  await exportNodeToPdf(
+                    <ExpenseVoucherPdfDoc
+                      request={{ ...selected, voucher_no: selected.payment_voucher_no }}
+                      approvals={approvals.filter((a) => a.request_id === selected.id)}
+                    />,
+                    `expense-${selected.request_no ?? selected.id}`,
+                  );
+                  toast.success("تم إنشاء ملف PDF");
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "تعذر إنشاء PDF");
+                }
+              }}
             />
           )}
         </DialogContent>
@@ -352,6 +440,11 @@ function RequestDetails({
   onDecide,
   onDisburse,
   onPrint,
+  onEdit,
+  onDelete,
+  onPdf,
+  canEdit,
+  canDelete,
 }: {
   request: ExpenseRequest;
   approvals: {
@@ -369,6 +462,11 @@ function RequestDetails({
   onDecide: (decision: "approved" | "rejected", notes?: string) => void;
   onDisburse: () => void;
   onPrint: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onPdf: () => Promise<void>;
+  canEdit: boolean;
+  canDelete: boolean;
 }) {
   const [notes, setNotes] = useState("");
   const already = approvals.some((a) => a.approver_id === myUserId);
@@ -460,6 +558,19 @@ function RequestDetails({
         <Button variant="outline" onClick={onPrint}>
           <Printer /> طباعة السند
         </Button>
+        <Button variant="outline" onClick={() => void onPdf()}>
+          <FileDown /> تصدير PDF
+        </Button>
+        {canEdit && (
+          <Button variant="outline" onClick={onEdit}>
+            <Pencil /> تعديل الطلب
+          </Button>
+        )}
+        {canDelete && (
+          <Button variant="outline" className="text-destructive" onClick={onDelete}>
+            <Trash2 /> حذف الطلب
+          </Button>
+        )}
       </div>
     </div>
   );

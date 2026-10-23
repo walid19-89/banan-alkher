@@ -76,10 +76,24 @@ function createSupabaseClient() {
 
 let _supabase: ReturnType<typeof createSupabaseClient> | undefined;
 
+// Demo-mode support (Arena preview only) — added manually below this comment.
+// NOTE: if this file is ever regenerated, re-add these two lines to restore demo mode.
+import { createDemoSupabase, isDemoMode } from "@/lib/demo";
+
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 export const supabase = new Proxy({} as ReturnType<typeof createSupabaseClient>, {
   get(_, prop, receiver) {
+    if (typeof window !== "undefined" && isDemoMode()) {
+      return Reflect.get(
+        createDemoSupabase(() => {
+          if (!_supabase) _supabase = createSupabaseClient();
+          return _supabase;
+        }),
+        prop,
+        receiver,
+      );
+    }
     if (!_supabase) _supabase = createSupabaseClient();
     return Reflect.get(_supabase, prop, receiver);
   },

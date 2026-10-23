@@ -15,6 +15,9 @@ import {
   Search,
   FileText,
   MessageCircle,
+  FileDown,
+  FileSpreadsheet,
+  Upload,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -35,6 +38,9 @@ import { MemberDialog } from "@/components/fund/MemberDialog";
 import { GenerateDuesDialog, PaySubscriptionDialog } from "@/components/fund/dialogs";
 import { settingsQuery, useMe, can } from "@/lib/fund";
 import { exportCSV, fmtDate, fmtMonth, money, whatsappLink, FUND_NAME, SUB_STATUS_LABELS } from "@/lib/format";
+import { exportNodeToPdf } from "@/lib/pdf";
+import { StatementPdfDoc, MembersListPdfDoc } from "@/components/fund/PdfDocs";
+import { ImportMembersDialog } from "@/components/fund/ImportMembersDialog";
 import {
   memberArrears,
   membersQuery,
@@ -59,6 +65,7 @@ function MembersPage() {
   const [q, setQ] = useState("");
   const [onlyActive, setOnlyActive] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
   const [payFor, setPayFor] = useState<Member | null>(null);
   const [duesOpen, setDuesOpen] = useState(false);
@@ -143,6 +150,27 @@ function MembersPage() {
             )}
             <Button variant="outline" onClick={exportList}>
               <Download /> تصدير Excel (CSV)
+            </Button>
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload /> استيراد من Excel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={async () => {
+                try {
+                  await exportNodeToPdf(
+                    <MembersListPdfDoc
+                      members={members.map((m) => ({ ...m, arrears: memberArrears(subs, m.id) }))}
+                    />,
+                    `members-list-${new Date().toISOString().slice(0, 10)}`,
+                  );
+                  toast.success("تم إنشاء ملف PDF");
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "تعذر إنشاء PDF");
+                }
+              }}
+            >
+              <FileDown /> كشف PDF
             </Button>
           </>
         }
@@ -309,6 +337,7 @@ function MembersPage() {
         )}
       </Card>
 
+      <ImportMembersDialog open={importOpen} onOpenChange={setImportOpen} defaultFee={Number(settings?.default_monthly_fee ?? 1000)} />
       <MemberDialog
         open={formOpen}
         onOpenChange={setFormOpen}
@@ -328,6 +357,46 @@ function MembersPage() {
             <DialogTitle>اشتراكات العضو: {details?.full_name}</DialogTitle>
           </DialogHeader>
           <MemberSubscriptions memberId={details?.id ?? ""} subs={subs} />
+          {details && (
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const rows = subs
+                    .filter((x) => x.member_id === details.id)
+                    .sort((a, b) => a.due_month.localeCompare(b.due_month));
+                  exportCSV(
+                    `statement-${details.member_no ?? details.id}`,
+                    ["الشهر", "المستحق", "المسدد", "الحالة"],
+                    rows.map((x) => [x.due_month.slice(0, 7), Number(x.amount), Number(x.paid_amount), SUB_STATUS_LABELS[x.status] ?? x.status]),
+                  );
+                }}
+              >
+                <FileSpreadsheet /> تصدير Excel
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    await exportNodeToPdf(
+                      <StatementPdfDoc
+                        member={details}
+                        subs={subs.filter((x) => x.member_id === details.id).sort((a, b) => a.due_month.localeCompare(b.due_month))}
+                      />,
+                      `statement-${details.member_no ?? details.id}`,
+                    );
+                    toast.success("تم إنشاء ملف PDF");
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "تعذر إنشاء PDF");
+                  }
+                }}
+              >
+                <FileDown /> تصدير PDF
+              </Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

@@ -1,8 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   Download,
+  FileDown,
   Printer,
   Scale,
   TrendingDown,
@@ -14,6 +16,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, Empty, Kpi, PageHeader, Pill, tableCls } from "@/components/fund/ui";
 import { PrintHeader } from "@/components/fund/Voucher";
+import { PdfDocShell, PdfSectionTitle, PdfTable, FinancialReportPdfDoc } from "@/components/fund/PdfDocs";
+import { exportNodeToPdf } from "@/lib/pdf";
 import { summaryQuery } from "@/lib/fund";
 import {
   CATEGORY_LABELS,
@@ -172,6 +176,83 @@ function ReportsPage() {
     );
   }
 
+  function exportArrears() {
+    exportCSV(
+      "المتأخرات_حسب_العضو",
+      ["رقم العضو", "الاسم", "المتأخرات"],
+      arrearsByMember.map(({ member, arrears }) => [member.member_no, member.full_name, arrears]),
+    );
+  }
+
+  const revenueDetailRows = () =>
+    receiptsIn.map((r) => [
+      r.receipt_no ?? "",
+      fmtDate(r.receipt_date),
+      RECEIPT_TYPE_LABELS[r.receipt_type] ?? r.receipt_type,
+      r.donor_name ?? "",
+      Number(r.amount),
+      r.is_restricted ? "نعم" : "لا",
+    ]);
+
+  const expenseDetailRows = () =>
+    expensesIn.map((e) => [
+      e.request_no ?? "",
+      fmtDate(e.requested_date),
+      CATEGORY_LABELS[e.category] ?? e.category,
+      e.beneficiary_name,
+      Number(e.amount),
+      EXPENSE_STATUS_LABELS[e.status] ?? e.status,
+    ]);
+
+  async function exportFullPdf() {
+    try {
+      await exportNodeToPdf(
+        <FinancialReportPdfDoc
+          from={from}
+          to={to}
+          kpis={[
+            { label: "إيرادات الفترة", value: money(revenue) },
+            { label: "المصروفات المصروفة", value: money(paidExpenses) },
+            { label: "طلبات قيد الاعتماد/الصرف", value: money(pendingTotal) },
+            { label: "صافي الفترة", value: money(revenue - paidExpenses) },
+            { label: "الرصيد النقدي الحالي (كل الفترات)", value: money(summary?.cash_balance) },
+            { label: "إجمالي المتأخرات (كل الفترات)", value: money(summary?.arrears) },
+          ]}
+          revenueRows={revenueDetailRows()}
+          expenseRows={expenseDetailRows()}
+          monthlyRows={monthly.map(([m, v]) => [m, v.revenue, v.paid])}
+          arrearsRows={arrearsByMember.map(({ member, arrears }) => [
+            `${member.member_no ?? ""} — ${member.full_name}`,
+            money(arrears),
+          ])}
+        />,
+        `financial-report-${from}_to_${to}`,
+      );
+      toast.success("تم إنشاء ملف PDF");
+    } catch (e) {
+      toast.error("تعذر إنشاء PDF: " + (e instanceof Error ? e.message : ""));
+    }
+  }
+
+  async function exportSectionPdf(
+    title: string,
+    filename: string,
+    headers: string[],
+    rows: (string | number)[][],
+  ) {
+    try {
+      await exportNodeToPdf(
+        <PdfDocShell title={title} dateLabel={`الفترة: من ${fmtDate(from)} إلى ${fmtDate(to)}`} signatures={["أمين الصندوق", "المحاسب"]}>
+          <PdfTable headers={headers} rows={rows} />
+        </PdfDocShell>,
+        filename,
+      );
+      toast.success("تم إنشاء ملف PDF");
+    } catch (e) {
+      toast.error("تعذر إنشاء PDF: " + (e instanceof Error ? e.message : ""));
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div className="no-print">
@@ -185,6 +266,9 @@ function ReportsPage() {
               </Button>
               <Button variant="outline" onClick={exportSummary}>
                 <Download /> ملخص CSV
+              </Button>
+              <Button onClick={exportFullPdf}>
+                <FileDown /> تصدير PDF كامل
               </Button>
             </>
           }
@@ -250,14 +334,38 @@ function ReportsPage() {
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <Card title="تفصيل الإيرادات">
+          <Card
+            title="تفصيل الإيرادات"
+            actions={
+              <div className="no-print flex gap-2">
+                <Button size="sm" variant="outline" onClick={exportRevenue}>
+                  <Download /> CSV
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => exportSectionPdf("تفصيل الإيرادات", "report-revenue", ["رقم السند", "التاريخ", "النوع", "الدافع", "المبلغ", "مقيد؟"], revenueDetailRows())}>
+                  <FileDown /> PDF
+                </Button>
+              </div>
+            }
+          >
             {revenueByType.length === 0 ? (
               <Empty>لا توجد إيرادات في هذه الفترة</Empty>
             ) : (
               <Breakdown items={revenueByType} total={revenue} />
             )}
           </Card>
-          <Card title="تفصيل المصروفات حسب التصنيف">
+          <Card
+            title="تفصيل المصروفات حسب التصنيف"
+            actions={
+              <div className="no-print flex gap-2">
+                <Button size="sm" variant="outline" onClick={exportExpenses}>
+                  <Download /> CSV
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => exportSectionPdf("تفصيل المصروفات", "report-expenses", ["رقم الطلب", "التاريخ", "التصنيف", "المستفيد", "المبلغ", "الحالة"], expenseDetailRows())}>
+                  <FileDown /> PDF
+                </Button>
+              </div>
+            }
+          >
             {expensesByCategory.length === 0 ? (
               <Empty>لا توجد طلبات صرف في هذه الفترة</Empty>
             ) : (
@@ -272,9 +380,14 @@ function ReportsPage() {
         <Card
           title="الحركة الشهرية"
           actions={
-            <Button size="sm" variant="outline" className="no-print" onClick={exportMonthly}>
-              <Download /> تصدير
-            </Button>
+            <div className="no-print flex gap-2">
+              <Button size="sm" variant="outline" onClick={exportMonthly}>
+                <Download /> CSV
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => exportSectionPdf("الحركة الشهرية", "report-monthly", ["الشهر", "الإيرادات", "المصروفات المصروفة"], monthly.map(([m, v]) => [m, v.revenue, v.paid]))}>
+                <FileDown /> PDF
+              </Button>
+            </div>
           }
         >
           {monthly.length === 0 ? (
@@ -341,9 +454,14 @@ function ReportsPage() {
           <Card
             title="المتأخرات على الأعضاء"
             actions={
-              <Button size="sm" variant="outline" className="no-print" onClick={exportRevenue}>
-                <Download /> تصدير الإيرادات
-              </Button>
+              <div className="no-print flex gap-2">
+                <Button size="sm" variant="outline" onClick={exportArrears}>
+                  <Download /> CSV
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => exportSectionPdf("المتأخرات على الأعضاء", "report-arrears", ["العضو", "المتأخرات"], arrearsByMember.map(({ member, arrears }) => [`${member.member_no ?? ""} — ${member.full_name}`, money(arrears)]))}>
+                  <FileDown /> PDF
+                </Button>
+              </div>
             }
           >
             {arrearsByMember.length === 0 ? (

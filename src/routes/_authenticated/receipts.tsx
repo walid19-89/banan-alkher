@@ -1,13 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useMutation } from "@tanstack/react-query";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   Download,
+  FileDown,
   Gift,
   Lock,
+  Pencil,
   Printer,
   Receipt as ReceiptIcon,
   Search,
+  Trash2,
   TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,10 +24,33 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Card, Empty, Kpi, PageHeader, Pill, tableCls } from "@/components/fund/ui";
+import { Card, Empty, Field, Kpi, PageHeader, Pill, tableCls } from "@/components/fund/ui";
 import { DonationDialog } from "@/components/fund/dialogs";
 import { PrintDialog, PrintHeader, VoucherBody } from "@/components/fund/Voucher";
+import { ReceiptPdfDoc } from "@/components/fund/PdfDocs";
+import { exportNodeToPdf } from "@/lib/pdf";
 import { useMe, can } from "@/lib/fund";
+import { explainWriteError, PolicyHelpDialog } from "@/components/fund/PolicyHelp";
+import { useInvalidateFund } from "@/lib/queries";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   exportCSV,
   fmtDate,
@@ -31,6 +59,7 @@ import {
   RECEIPT_TYPE_LABELS,
   receiptNo,
 } from "@/lib/format";
+import { supabase } from "@/integrations/supabase/client";
 import { membersQuery, receiptsQuery, type Receipt } from "@/lib/queries";
 
 export const Route = createFileRoute("/_authenticated/receipts")({
@@ -49,8 +78,13 @@ function ReceiptsPage() {
   const [to, setTo] = useState("");
   const [donationOpen, setDonationOpen] = useState(false);
   const [printing, setPrinting] = useState<Receipt | null>(null);
+  const [editing, setEditing] = useState<Receipt | null>(null);
+  const [deleting, setDeleting] = useState<Receipt | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const inv = useInvalidateFund();
 
   const canAdd = can(me, ["admin", "accountant", "treasurer"]);
+  const canManage = can(me, ["admin", "accountant"]);
 
   const memberName = useMemo(() => {
     const map = new Map(members.map((m) => [m.id, `${m.member_no ?? ""} — ${m.full_name}`]));
@@ -234,14 +268,54 @@ function ReceiptsPage() {
                         {r.restricted_purpose || r.notes || "—"}
                       </td>
                       <td>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          title="طباعة السند"
-                          onClick={() => setPrinting(r)}
-                        >
-                          <Printer />
-                        </Button>
+                        <div className="flex flex-wrap gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            title="طباعة السند"
+                            onClick={() => setPrinting(r)}
+                          >
+                            <Printer />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            title="تصدير PDF"
+                            onClick={async () => {
+                              try {
+                                await exportNodeToPdf(
+                                  <ReceiptPdfDoc receipt={r} memberName={memberName(r.member_id)} />,
+                                  `receipt-${r.receipt_no ?? r.id}`,
+                                );
+                                toast.success("تم إنشاء ملف PDF");
+                              } catch (e) {
+                                toast.error(e instanceof Error ? e.message : "تعذر إنشاء PDF");
+                              }
+                            }}
+                          >
+                            <FileDown />
+                          </Button>
+                          {canManage && r.receipt_type !== "subscription" && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              title="تعديل"
+                              onClick={() => setEditing(r)}
+                            >
+                              <Pencil />
+                            </Button>
+                          )}
+                          {canManage && r.receipt_type !== "subscription" && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              title="حذف"
+                              onClick={() => setDeleting(r)}
+                            >
+                              <Trash2 className="text-destructive" />
+                            </Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -253,6 +327,49 @@ function ReceiptsPage() {
       </Card>
 
       <DonationDialog open={donationOpen} onOpenChange={setDonationOpen} />
+      <ReceiptEditDialog
+        receipt={editing}
+        onOpenChange={(o) => !o && setEditing(null)}
+        onHelp={() => setHelpOpen(true)}
+        onSaved={() => {
+          inv();
+          setEditing(null);
+        }}
+      />
+
+      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>حذف سند القبض؟</AlertDialogTitle>
+            <AlertDialogDescription>
+              سيتم حذف السند رقم {deleting ? receiptNo(deleting.receipt_no) : ""} بمبلغ{" "}
+              {deleting ? money(deleting.amount) : ""} نهائياً. لا يمكن التراجع عن هذا الإجراء.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>إلغاء</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (!deleting) return;
+                try {
+                  const { error } = await supabase.from("fund_receipts").delete().eq("id", deleting.id);
+                  if (error) throw error;
+                  toast.success("تم حذف السند");
+                  inv();
+                } catch (e) {
+                  explainWriteError(e, () => setHelpOpen(true));
+                } finally {
+                  setDeleting(null);
+                }
+              }}
+            >
+              حذف نهائي
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <PolicyHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
 
       <PrintDialog open={!!printing} onOpenChange={(o) => !o && setPrinting(null)} title="سند قبض">
         {printing && (
@@ -282,5 +399,134 @@ function ReceiptsPage() {
         )}
       </PrintDialog>
     </div>
+  );
+}
+
+
+function ReceiptEditDialog({
+  receipt,
+  onOpenChange,
+  onSaved,
+  onHelp,
+}: {
+  receipt: Receipt | null;
+  onOpenChange: (o: boolean) => void;
+  onSaved: () => void;
+  onHelp: () => void;
+}) {
+  const [f, setF] = useState({
+    donor_name: "",
+    amount: "",
+    payment_method: "cash",
+    receipt_date: "",
+    is_restricted: false,
+    restricted_purpose: "",
+    notes: "",
+  });
+
+  useEffect(() => {
+    if (receipt) {
+      setF({
+        donor_name: receipt.donor_name ?? "",
+        amount: String(receipt.amount ?? ""),
+        payment_method: receipt.payment_method ?? "cash",
+        receipt_date: (receipt.receipt_date ?? "").slice(0, 10),
+        is_restricted: receipt.is_restricted ?? false,
+        restricted_purpose: receipt.restricted_purpose ?? "",
+        notes: receipt.notes ?? "",
+      });
+    }
+  }, [receipt]);
+
+  const m = useMutation({
+    mutationFn: async () => {
+      if (!receipt) return;
+      const { error } = await supabase
+        .from("fund_receipts")
+        .update({
+          donor_name: f.donor_name,
+          amount: Number(f.amount),
+          payment_method: f.payment_method,
+          receipt_date: f.receipt_date,
+          is_restricted: f.is_restricted,
+          restricted_purpose: f.is_restricted ? f.restricted_purpose : null,
+          notes: f.notes || null,
+        })
+        .eq("id", receipt.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("تم حفظ التعديلات");
+      onSaved();
+    },
+    onError: (e) => explainWriteError(e, onHelp),
+  });
+
+  return (
+    <Dialog open={!!receipt} onOpenChange={onOpenChange}>
+      <DialogContent dir="rtl">
+        <DialogHeader>
+          <DialogTitle>
+            تعديل سند قبض {receipt ? receiptNo(receipt.receipt_no) : ""}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="المبلغ (ر.ي)">
+              <Input
+                type="number"
+                min={1}
+                value={f.amount}
+                onChange={(e) => setF({ ...f, amount: e.target.value })}
+              />
+            </Field>
+            <Field label="التاريخ">
+              <Input
+                type="date"
+                value={f.receipt_date}
+                onChange={(e) => setF({ ...f, receipt_date: e.target.value })}
+              />
+            </Field>
+          </div>
+          <Field label="اسم الدافع / المتبرع">
+            <Input value={f.donor_name} onChange={(e) => setF({ ...f, donor_name: e.target.value })} />
+          </Field>
+          <Field label="طريقة الدفع">
+            <Select value={f.payment_method} onValueChange={(v) => setF({ ...f, payment_method: v })} dir="rtl">
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cash">نقداً</SelectItem>
+                <SelectItem value="bank_transfer">تحويل بنكي</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <label className="flex items-center justify-between rounded-lg border p-3 text-sm font-semibold">
+            تبرع مقيد بغرض محدد
+            <Switch checked={f.is_restricted} onCheckedChange={(v) => setF({ ...f, is_restricted: v })} />
+          </label>
+          {f.is_restricted && (
+            <Field label="الغرض المقيد">
+              <Input value={f.restricted_purpose} onChange={(e) => setF({ ...f, restricted_purpose: e.target.value })} />
+            </Field>
+          )}
+          <Field label="ملاحظات">
+            <Textarea rows={2} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
+          </Field>
+          <p className="text-xs text-muted-foreground">
+            سندات الاشتراكات لا تُعدَّل يدوياً لحماية تطابقها مع كشوف السداد — عدّل عبر تسجيل السداد.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button
+            disabled={m.isPending || !(Number(f.amount) > 0) || !f.donor_name || !f.receipt_date}
+            onClick={() => m.mutate()}
+          >
+            حفظ التعديلات
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

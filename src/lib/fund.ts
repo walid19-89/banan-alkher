@@ -125,3 +125,10 @@ export function errMsg(e: unknown): string {
   if (e && typeof e === "object" && "message" in e) return String((e as { message: string }).message);
   return "حدث خطأ غير متوقع";
 }
+
+/** True when Postgres Row-Level-Security rejected the write (missing UPDATE/DELETE policy). */
+export function isRlsError(e: unknown): boolean {
+  const msg = errMsg(e).toLowerCase();
+  const code = e && typeof e === "object" && "code" in e ? String((e as { code: unknown }).code) : "";
+  return code === "42501" || msg.includes("row-level security") || msg.includes("policy");
+}

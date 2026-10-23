@@ -2,7 +2,20 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ImagePlus, Save, ShieldCheck, Users, Wallet, History, Trash2, DatabaseBackup } from "lucide-react";
+import {
+  ImagePlus,
+  Save,
+  ShieldCheck,
+  Users,
+  Wallet,
+  History,
+  Trash2,
+  DatabaseBackup,
+  UserPlus,
+  Grid3X3,
+  Mail,
+  Copy,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +28,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, Empty, Field, PageHeader, Pill, tableCls } from "@/components/fund/ui";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { FundEmblem } from "@/components/fund/Brand";
 import { errMsg, imageToDataUrl, settingsQuery, useMe, can } from "@/lib/fund";
 import {
@@ -29,6 +49,8 @@ import {
   SUB_STATUS_LABELS,
   type FundRole,
 } from "@/lib/format";
+import { PERMISSIONS, ROLE_PERMISSIONS, roleFromPermissions, type PermissionKey } from "@/lib/permissions";
+import { ROLE_LABELS as RL } from "@/lib/format";
 import {
   auditLogsQuery,
   membersQuery,
@@ -76,6 +98,7 @@ function AdminPage() {
         members={members}
         onChange={inv}
       />
+      <PermissionsCard isAdmin={isAdmin} profiles={profiles} roles={roles} onChange={inv} />
       {isAdmin && <BackupCard />}
 
       <Card title="سجل التغييرات (Audit Log)">
@@ -452,33 +475,40 @@ function UsersCard({
 /** Full CSV backup: exports every main table as a separate file, admin only. */
 function BackupCard() {
   const [busy, setBusy] = useState(false);
+  const [lastBackup, setLastBackup] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem("last_backup_at");
+    } catch {
+      return null;
+    }
+  });
 
   async function backup() {
     setBusy(true);
     try {
       const day = todayISO();
       const yn = (v: unknown) => (v ? "نعم" : "لا");
-      const tables: { file: string; table: string; headers: string[]; order: string; map?: (r: any) => (string | number | null)[] }[] = [
+      const tables: { file: string; table: string; headers: string[]; order: string; map?: (r: any) => (string | number | null)[]; get?: () => Promise<(string | number | null)[][]> }[] = [
         {
           file: `backup-members-${day}`,
           table: "fund_members",
           order: "member_no",
           headers: ["رقم العضو", "الاسم", "الهاتف", "العنوان", "الاشتراك الشهري", "تاريخ الانضمام", "نشط؟", "ملاحظات"],
-          map: (r) => [r.member_no, r.full_name, r.phone, r.address, r.monthly_fee, r.joined_on, yn(r.active), r.notes],
+          map: (r: any) => [r.member_no, r.full_name, r.phone, r.address, r.monthly_fee, r.joined_on, yn(r.active), r.notes],
         },
         {
           file: `backup-subscriptions-${day}`,
           table: "fund_subscriptions",
           order: "due_month",
           headers: ["الشهر", "المستحق", "المسدد", "الحالة"],
-          map: (r) => [r.due_month, r.amount, r.paid_amount, SUB_STATUS_LABELS[String(r.status)] ?? r.status],
+          map: (r: any) => [r.due_month, r.amount, r.paid_amount, SUB_STATUS_LABELS[String(r.status)] ?? r.status],
         },
         {
           file: `backup-receipts-${day}`,
           table: "fund_receipts",
           order: "receipt_no",
           headers: ["رقم السند", "التاريخ", "النوع", "الدافع", "المبلغ", "طريقة الدفع", "مقيد؟", "الغرض المقيد", "ملاحظات"],
-          map: (r) => [
+          map: (r: any) => [
             r.receipt_no,
             r.receipt_date,
             RECEIPT_TYPE_LABELS[String(r.receipt_type)] ?? r.receipt_type,
@@ -494,33 +524,66 @@ function BackupCard() {
           file: `backup-expenses-${day}`,
           table: "fund_expense_requests",
           order: "request_no",
-          headers: ["رقم الطلب", "تاريخ الطلب", "التصنيف", "المستفيد", "الوصف", "المبلغ", "الحالة", "تاريخ الصرف", "رقم سند الصرف"],
-          map: (r) => [
+          headers: ["رقم الطلب", "تاريخ الطلب", "التصنيف", "المستفيد", "الهاتف", "الوصف", "المبلغ", "الحالة", "تاريخ الصرف", "رقم سند الصرف"],
+          map: (r: any) => [
             r.request_no,
             r.requested_date,
             CATEGORY_LABELS[String(r.category)] ?? r.category,
-            r.beneficiary,
+            r.beneficiary_name,
+            r.beneficiary_phone,
             r.description,
             r.amount,
             EXPENSE_STATUS_LABELS[String(r.status)] ?? r.status,
             r.disbursed_at,
-            r.voucher_no,
+            r.payment_voucher_no,
           ],
+        },
+        {
+          file: `backup-approvals-${day}`,
+          table: "fund_expense_approvals",
+          order: "created_at",
+          headers: ["الطلب", "المعتمِد", "الدور", "القرار", "ملاحظات", "التاريخ"],
+          map: (r: any) => [r.request_id, r.approver_name, r.approver_role, r.decision === "approved" ? "اعتماد" : "رفض", r.notes, r.created_at],
         },
         {
           file: `backup-audit-${day}`,
           table: "fund_audit_logs",
           order: "created_at",
           headers: ["التاريخ والوقت", "الحدث", "النوع", "معرّف السجل", "المستخدم", "التفاصيل"],
-          map: (r) => [r.created_at, r.action, r.entity_type, r.entity_id, r.actor_name ?? r.actor_id, r.details],
+          map: (r: any) => [r.created_at, r.action, r.entity_type, r.entity_id, r.actor_name ?? r.actor_id, r.details],
+        },
+        {
+          file: `backup-users-${day}`,
+          table: "fund_user_profiles",
+          order: "created_at",
+          headers: ["الاسم", "البريد الإلكتروني", "الدور", "نشط؟", "مرتبط بعضو"],
+          get: async () => {
+            const profs = await fetchAll("fund_user_profiles", "created_at");
+            const rols = await fetchAll("fund_user_roles", "user_id");
+            const mems = await fetchAll("fund_members", "member_no");
+            const roleOf = (uid: unknown) => String((rols.find((x: any) => x.user_id === uid) as any)?.role ?? "member");
+            const nameOf = (mid: unknown) => {
+              const m = mems.find((x: any) => x.id === mid) as any;
+              return m ? `${m.member_no ?? ""} — ${m.full_name}` : "";
+            };
+            return profs.map((x: any) => [x.full_name, x.email, ROLE_LABELS[String(roleOf(x.user_id)) as FundRole] ?? roleOf(x.user_id), yn(x.active), x.linked_member_id ? nameOf(x.linked_member_id) : "غير مرتبط"]);
+          },
+        },
+        {
+          file: `backup-settings-${day}`,
+          table: "fund_settings",
+          order: "fund_name",
+          headers: ["اسم الصندوق", "العملة", "الاشتراك الافتراضي", "الرصيد الافتتاحي", "السداد الذاتي مسموح؟", "شعار مرفوع؟", "آخر تحديث"],
+          map: (r: any) => [r.fund_name, r.currency, r.default_monthly_fee, r.opening_balance, yn(r.allow_self_approval), yn(r.logo_url), r.updated_at],
         },
       ];
       for (const [i, t] of tables.entries()) {
-        const raw = await fetchAll(t.table, t.order);
-        const rows: (string | number | null)[][] = raw.map((r: any) => (t.map ? t.map(r) : (Object.values(r) as (string | number | null)[])));
+        const rows = t.get ? await t.get() : (await fetchAll(t.table, t.order)).map((r: any) => (t.map ? t.map(r) : (Object.values(r) as (string | number | null)[])));
         exportCSV(t.file, t.headers, rows);
         if (i < tables.length - 1) await new Promise((r) => setTimeout(r, 400));
       }
+      localStorage.setItem("last_backup_at", new Date().toISOString());
+      setLastBackup(localStorage.getItem("last_backup_at"));
       toast.success(`تم تنزيل النسخة الاحتياطية (${tables.length} ملفات Excel)`);
     } catch (e) {
       toast.error(errMsg(e));
@@ -532,9 +595,17 @@ function BackupCard() {
   return (
     <Card title="النسخة الاحتياطية">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-xl text-sm text-muted-foreground">
-          تصدير كل بيانات الصندوق (الأعضاء، الاشتراكات، سندات القبض، طلبات الصرف، سجل التغييرات) إلى ملفات Excel تُفتح بأي جهاز. يُنصح بأخذ نسخة أسبوعياً وحفظها في مكان آمن.
-        </p>
+        <div className="max-w-xl text-sm text-muted-foreground">
+          <p>
+            تصدير كل بيانات الصندوق (الأعضاء، الاشتراكات، سندات القبض، طلبات الصرف، الاعتمادات، سجل التغييرات،
+            المستخدمون، الإعدادات) إلى 8 ملفات جداول تُفتح في Excel وGoogle Sheets.
+          </p>
+          <p className="mt-1 text-xs">
+            {lastBackup
+              ? `آخر نسخة احتياطية: ${fmtDateTime(lastBackup)}`
+              : "لم تُؤخذ أي نسخة بعد — يُنصح بأخذ نسخة نهاية كل شهر وحفظها في مكان آمن."}
+          </p>
+        </div>
         <Button variant="soft" disabled={busy} onClick={backup}>
           <DatabaseBackup /> {busy ? "جارٍ التصدير…" : "تنزيل نسخة احتياطية كاملة"}
         </Button>
@@ -555,4 +626,247 @@ async function fetchAll(table: string, order: string): Promise<any[]> {
     if (data.length < PAGE) break;
   }
   return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Permissions matrix + per-user permission editor + staff invite      */
+/* ------------------------------------------------------------------ */
+
+function PermissionsCard({
+  isAdmin,
+  profiles,
+  roles,
+  onChange,
+}: {
+  isAdmin: boolean;
+  profiles: UserProfile[];
+  roles: { user_id: string; role: string }[];
+  onChange: () => void;
+}) {
+  const [showMatrix, setShowMatrix] = useState(false);
+  const [userId, setUserId] = useState("");
+  const [checked, setChecked] = useState<Set<PermissionKey>>(new Set());
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const inv = useInvalidateFund();
+
+  const roleOf = (uid: string): FundRole => ((roles.find((r) => r.user_id === uid)?.role ?? "member") as FundRole);
+
+  function pickUser(uid: string) {
+    setUserId(uid);
+    setChecked(new Set(ROLE_PERMISSIONS[roleOf(uid)]));
+  }
+
+  function toggle(k: PermissionKey) {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  }
+
+  const activeId = userId || profiles[0]?.user_id || "";
+  const activeChecked = checked.size > 0 ? checked : new Set<PermissionKey>(ROLE_PERMISSIONS[roleOf(activeId)]);
+  const suggestion = roleFromPermissions(activeChecked);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("fund_user_roles").update({ role: suggestion.role }).eq("user_id", activeId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success(
+        suggestion.exact
+          ? `تم تحديث الصلاحيات: ${RL[suggestion.role]}`
+          : `التوليفة المختارة لا تطابق دوراً جاهزاً — طُبِّق الأقرب: ${RL[suggestion.role]}`,
+      );
+      setChecked(new Set());
+      inv();
+      onChange();
+    },
+    onError: (e) => toast.error(errMsg(e)),
+  });
+
+  return (
+    <Card title="الصلاحيات والأدوار">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <p className="max-w-xl text-xs text-muted-foreground">
+          الأدوار الجاهزة هي التي تتحكم فعلياً في الاعتماد والصرف داخل قاعدة البيانات. فعّل المربعات وسيقترح النظام
+          الدور المطابق تلقائياً.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => setShowMatrix((v) => !v)}>
+            <Grid3X3 /> {showMatrix ? "إخفاء المصفوفة" : "عرض مصفوفة الصلاحيات"}
+          </Button>
+          <Button size="sm" variant="soft" disabled={!isAdmin} onClick={() => setInviteOpen(true)}>
+            <UserPlus /> دعوة موظف
+          </Button>
+        </div>
+      </div>
+
+      {showMatrix && (
+        <div className="mb-5 overflow-x-auto rounded-lg border">
+          <table className="w-full text-xs [&_td]:border-t [&_td]:px-2 [&_td]:py-1.5 [&_th]:bg-muted [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-center [&_th]:text-[11px]">
+            <thead>
+              <tr>
+                <th className="!text-right">الصلاحية</th>
+                {(["admin", "accountant", "treasurer", "board_member", "member"] as FundRole[]).map((r) => (
+                  <th key={r}>{RL[r]}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {PERMISSIONS.map((p) => (
+                <tr key={p.key}>
+                  <td className="min-w-[200px] font-semibold">{p.label}</td>
+                  {(["admin", "accountant", "treasurer", "board_member", "member"] as FundRole[]).map((r) => (
+                    <td key={r} className="text-center">
+                      {ROLE_PERMISSIONS[r].includes(p.key) ? (
+                        <span className="text-success">✓</span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold">المستخدم</label>
+          <Select value={activeId} onValueChange={pickUser} dir="rtl" disabled={profiles.length === 0}>
+            <SelectTrigger>
+              <SelectValue placeholder="اختر مستخدماً" />
+            </SelectTrigger>
+            <SelectContent>
+              {profiles.map((p) => (
+                <SelectItem key={p.user_id} value={p.user_id}>
+                  {p.full_name} {p.email ? `(${p.email})` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {activeId && (
+            <p className="text-xs text-muted-foreground">
+              الدور الحالي: <b>{RL[roleOf(activeId)]}</b>
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-semibold">الصلاحيات</label>
+          <div className="grid grid-cols-1 gap-1.5 rounded-lg border p-3 sm:grid-cols-2">
+            {PERMISSIONS.map((p) => (
+              <label key={p.key} className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-[var(--primary)]"
+                  checked={activeChecked.has(p.key)}
+                  disabled={!isAdmin || !activeId}
+                  onChange={() => toggle(p.key)}
+                />
+                {p.label}
+              </label>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs">
+              الدور المقترح:{" "}
+              <b className={suggestion.exact ? "text-success" : "text-warning"}>
+                {RL[suggestion.role]}
+                {!suggestion.exact && " (الأقرب لتوليفتك)"}
+              </b>
+            </p>
+            <Button size="sm" disabled={!isAdmin || !activeId || save.isPending} onClick={() => save.mutate()}>
+              <ShieldCheck /> حفظ الصلاحيات
+            </Button>
+          </div>
+          {!isAdmin && (
+            <p className="text-xs text-warning">تعديل الصلاحيات متاح لمدير النظام فقط.</p>
+          )}
+        </div>
+      </div>
+
+      <InviteStaffDialog open={inviteOpen} onOpenChange={setInviteOpen} />
+    </Card>
+  );
+}
+
+function InviteStaffDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const [role, setRole] = useState<FundRole>("accountant");
+  const link = typeof window !== "undefined" ? window.location.origin : "";
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto" dir="rtl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserPlus className="h-5 w-5 text-primary" /> دعوة موظف إلى النظام
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 text-sm">
+          <Field label="الدور الذي سيُمنح له">
+            <Select value={role} onValueChange={(v) => setRole(v as FundRole)} dir="rtl">
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(["admin", "accountant", "treasurer", "board_member"] as FundRole[]).map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {RL[r]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <ol className="list-decimal space-y-2 pr-5">
+            <li>
+              شارك معه رابط النظام:
+              <div className="mt-1 flex items-center gap-2">
+                <code dir="ltr" className="flex-1 truncate rounded bg-muted px-2 py-1.5 text-xs">
+                  {link}
+                </code>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(link);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    } catch {
+                      /* ignore */
+                    }
+                  }}
+                >
+                  <Copy /> {copied ? "تم ✓" : "نسخ"}
+                </Button>
+              </div>
+            </li>
+            <li>يطلب منك إنشاء حساب جديد بنفس البريد من صفحة الدخول (تبويب «حساب جديد»).</li>
+            <li>
+              بعد تسجيله سيظهر في قائمة المستخدمين أعلاه — حدد سطره ثم فعّل صلاحياته كما في
+              «{RL[role]}» واحفظ.
+            </li>
+          </ol>
+
+          <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
+            ملاحظة أمنية: إنشاء الحسابات يتم عبر البريد الرسمي فقط، والدور الافتراضي لأي حساب جديد هو
+            «عضو» بلا صلاحيات إدارية حتى يمنحها المدير.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Mail /> فهمت — سأشارك الرابط
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }

@@ -1,10 +1,11 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { LayoutDashboard, Users, Receipt, HandCoins, BarChart3, Settings, LogOut, ChevronRight, ChevronLeft, Moon, Sun, WifiOff } from "lucide-react";
+import { LayoutDashboard, Users, Receipt, HandCoins, BarChart3, Settings, LogOut, ChevronRight, ChevronLeft, Moon, Sun, WifiOff, Eye } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useMe, STAFF, can, summaryQuery } from "@/lib/fund";
 import { FUND_NAME, ROLE_LABELS, type FundRole } from "@/lib/format";
+import { isDemoMode, exitDemoMode } from "@/lib/demo";
 import { FundLogo } from "./Brand";
 import { Button } from "@/components/ui/button";
 import { ConnectionBanner } from "./ui";
@@ -30,6 +31,7 @@ export function AppShell() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { theme, toggle } = useTheme();
+  const demo = isDemoMode();
 
   const isStaff = can(me, STAFF);
   // Regular members only get the dashboard; staff see everything.
@@ -117,6 +119,17 @@ export function AppShell() {
             </div>
           ) : (
             <>
+              {demo && (
+                <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gold/50 bg-gold-soft px-4 py-2.5 text-sm font-bold text-gold">
+                  <span className="flex items-center gap-2">
+                    <Eye className="h-4 w-4 shrink-0" />
+                    وضع العرض التجريبي — البيانات المعروضة وهمية لأغراض المعاينة فقط، ولن يُحفظ أي تعديل.
+                  </span>
+                  <Button size="sm" variant="outline" className="border-gold/50 text-gold" onClick={exitDemoMode}>
+                    إنهاء العرض والعودة لتسجيل الدخول
+                  </Button>
+                </div>
+              )}
               <ConnectionBanner />
               {!isStaff && !path.startsWith("/dashboard") ? <NoAccess /> : <Outlet />}
             </>
