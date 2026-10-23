@@ -196,6 +196,25 @@
     size: A4;
     margin: 12mm;
   }
+  /* Force the light palette even when dark mode is active, so printouts are always clean. */
+  :root,
+  .dark {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.24 0.03 200);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.24 0.03 200);
+    --muted: oklch(0.955 0.008 200);
+    --muted-foreground: oklch(0.5 0.025 220);
+    --border: oklch(0.91 0.012 190);
+    --primary: oklch(0.43 0.09 166);
+    --primary-foreground: oklch(0.99 0.005 160);
+    --gold: oklch(0.67 0.16 58);
+    --secondary: oklch(0.955 0.01 200);
+    --accent: oklch(0.95 0.035 166);
+  }
+  body {
+    background: white !important;
+  }
   body * {
     visibility: hidden !important;
   }
@@ -213,6 +232,14 @@
     border: none !important;
     background: white !important;
     color: black !important;
+  }
+  /* The ERP document shell is fixed 794px for PDF export; stretch it to the printable width. */
+  .print-area .pdf-doc {
+    width: 100% !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
   }
   .print-only {
     display: block !important;

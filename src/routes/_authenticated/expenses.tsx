@@ -92,6 +92,21 @@ function ExpensesPage() {
     },
     onError: (e) => explainWriteError(e, () => setHelpOpen(true)),
   });
+
+  async function rowPdf(r: ExpenseRequest) {
+    try {
+      await exportNodeToPdf(
+        <ExpenseVoucherPdfDoc
+          request={{ ...r, voucher_no: r.payment_voucher_no }}
+          approvals={approvals.filter((a) => a.request_id === r.id)}
+        />,
+        `expense-${r.request_no ?? r.id}`,
+      );
+      toast.success("تم إنشاء ملف PDF");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "تعذر إنشاء PDF");
+    }
+  }
   const [selected, setSelected] = useState<ExpenseRequest | null>(null);
   const [printing, setPrinting] = useState<ExpenseRequest | null>(null);
 
@@ -300,7 +315,7 @@ function ExpensesPage() {
                       </Pill>
                     </td>
                     <td>
-                      <div className="flex gap-1">
+                      <div className="flex flex-wrap gap-1">
                         <Button size="sm" variant="soft" onClick={() => setSelected(r)}>
                           التفاصيل
                         </Button>
@@ -308,10 +323,39 @@ function ExpensesPage() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            title="طباعة السند"
+                            title="طباعة سند الصرف"
                             onClick={() => setPrinting(r)}
                           >
                             <Printer />
+                          </Button>
+                        )}
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title="تصدير PDF"
+                          onClick={() => void rowPdf(r)}
+                        >
+                          <FileDown />
+                        </Button>
+                        {r.status === "pending" &&
+                          (can(me, ["admin"]) || r.created_by === me?.user_id) && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              title="تعديل الطلب المعلق"
+                              onClick={() => setEditing(r)}
+                            >
+                              <Pencil />
+                            </Button>
+                          )}
+                        {r.status === "pending" && can(me, ["admin"]) && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            title="حذف الطلب المعلق"
+                            onClick={() => setDeleting(r)}
+                          >
+                            <Trash2 className="text-destructive" />
                           </Button>
                         )}
                       </div>

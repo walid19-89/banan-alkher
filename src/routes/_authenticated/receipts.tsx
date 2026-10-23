@@ -295,21 +295,31 @@ function ReceiptsPage() {
                           >
                             <FileDown />
                           </Button>
-                          {canManage && r.receipt_type !== "subscription" && (
+                          {canManage && (
                             <Button
                               size="icon"
                               variant="ghost"
-                              title="تعديل"
+                              title={
+                                r.receipt_type === "subscription"
+                                  ? "سندات الاشتراكات تُعدَّل من شاشة السداد — غير قابلة للتعديل اليدوي"
+                                  : "تعديل السند"
+                              }
+                              disabled={r.receipt_type === "subscription"}
                               onClick={() => setEditing(r)}
                             >
                               <Pencil />
                             </Button>
                           )}
-                          {canManage && r.receipt_type !== "subscription" && (
+                          {canManage && (
                             <Button
                               size="icon"
                               variant="ghost"
-                              title="حذف"
+                              title={
+                                r.receipt_type === "subscription"
+                                  ? "سندات الاشتراكات تُحذف عبر حذف السداد من كشف العضو — غير قابلة للحذف اليدوي"
+                                  : "حذف السند"
+                              }
+                              disabled={r.receipt_type === "subscription"}
                               onClick={() => setDeleting(r)}
                             >
                               <Trash2 className="text-destructive" />

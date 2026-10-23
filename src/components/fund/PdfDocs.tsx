@@ -35,7 +35,7 @@ export function PdfDocShell({
   signatures?: string[];
 }) {
   return (
-    <div style={{ ...vars, width: 794, minHeight: 1123, background: "#ffffff", color: C.ink, padding: "44px 48px", fontFamily: "'Cairo', sans-serif", boxSizing: "border-box" }}>
+    <div className="pdf-doc" style={{ ...vars, width: 794, minHeight: 1123, background: "#ffffff", color: C.ink, padding: "44px 48px", fontFamily: "'Cairo', sans-serif", boxSizing: "border-box" }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, borderBottom: `3px solid ${C.gold}`, paddingBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -308,6 +308,8 @@ export function FinancialReportPdfDoc({
   from,
   to,
   kpis,
+  summaryRevenue,
+  summaryExpenses,
   revenueRows,
   expenseRows,
   monthlyRows,
@@ -316,6 +318,8 @@ export function FinancialReportPdfDoc({
   from: string;
   to: string;
   kpis: { label: string; value: string }[];
+  summaryRevenue?: [string, number][];
+  summaryExpenses?: [string, number][];
   revenueRows: (string | number)[][];
   expenseRows: (string | number)[][];
   monthlyRows: (string | number)[][];
@@ -323,14 +327,37 @@ export function FinancialReportPdfDoc({
 }) {
   return (
     <PdfDocShell title="التقرير المالي" dateLabel={`الفترة: من ${fmtDate(from)} إلى ${fmtDate(to)}`} signatures={["أمين الصندوق", "المحاسب", "مدير النظام"]}>
+      <PdfSectionTitle>أولاً: الملخص التنفيذي</PdfSectionTitle>
       <PdfTable headers={["البند", "القيمة"]} rows={kpis.map((k) => [k.label, k.value])} widths={["60%", "40%"]} />
-      <PdfSectionTitle>تفصيل الإيرادات</PdfSectionTitle>
+      {summaryRevenue && summaryRevenue.length > 0 && (
+        <>
+          <PdfSectionTitle>ثانياً: توزيع الإيرادات حسب النوع</PdfSectionTitle>
+          <PdfTable
+            headers={["النوع", "المبلغ"]}
+            rows={summaryRevenue.map(([l, v]) => [l, money(v)])}
+            footer={["الإجمالي", money(summaryRevenue.reduce((s, [, v]) => s + v, 0))]}
+            widths={["60%", "40%"]}
+          />
+        </>
+      )}
+      {summaryExpenses && summaryExpenses.length > 0 && (
+        <>
+          <PdfSectionTitle>ثالثاً: توزيع المصروفات حسب التصنيف</PdfSectionTitle>
+          <PdfTable
+            headers={["التصنيف", "المبلغ"]}
+            rows={summaryExpenses.map(([l, v]) => [l, money(v)])}
+            footer={["الإجمالي", money(summaryExpenses.reduce((s, [, v]) => s + v, 0))]}
+            widths={["60%", "40%"]}
+          />
+        </>
+      )}
+      <PdfSectionTitle>رابعاً: كشف تفصيلي بالإيرادات</PdfSectionTitle>
       <PdfTable headers={["رقم السند", "التاريخ", "النوع", "الدافع", "المبلغ", "مقيد؟"]} rows={revenueRows} />
-      <PdfSectionTitle>تفصيل المصروفات</PdfSectionTitle>
+      <PdfSectionTitle>خامساً: كشف تفصيلي بالمصروفات</PdfSectionTitle>
       <PdfTable headers={["رقم الطلب", "التاريخ", "التصنيف", "المستفيد", "المبلغ", "الحالة"]} rows={expenseRows} />
-      <PdfSectionTitle>الحركة الشهرية</PdfSectionTitle>
+      <PdfSectionTitle>سادساً: الحركة الشهرية</PdfSectionTitle>
       <PdfTable headers={["الشهر", "الإيرادات", "المصروفات المصروفة"]} rows={monthlyRows} />
-      <PdfSectionTitle>المتأخرات حسب العضو</PdfSectionTitle>
+      <PdfSectionTitle>سابعاً: المتأخرات حسب العضو</PdfSectionTitle>
       <PdfTable headers={["العضو", "المتأخرات"]} rows={arrearsRows} />
     </PdfDocShell>
   );

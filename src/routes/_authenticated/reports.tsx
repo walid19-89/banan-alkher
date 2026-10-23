@@ -15,7 +15,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, Empty, Kpi, PageHeader, Pill, tableCls } from "@/components/fund/ui";
-import { PrintHeader } from "@/components/fund/Voucher";
 import { PdfDocShell, PdfSectionTitle, PdfTable, FinancialReportPdfDoc } from "@/components/fund/PdfDocs";
 import { exportNodeToPdf } from "@/lib/pdf";
 import { summaryQuery } from "@/lib/fund";
@@ -53,6 +52,7 @@ function ReportsPage() {
 
   const [from, setFrom] = useState(yearStart);
   const [to, setTo] = useState(todayStr);
+  const [printOpen, setPrintOpen] = useState(false);
 
   const inRange = (d: string) => (!from || d >= from) && (!to || d <= to);
 
@@ -204,30 +204,35 @@ function ReportsPage() {
       EXPENSE_STATUS_LABELS[e.status] ?? e.status,
     ]);
 
+  const reportKpis = () => [
+    { label: "إيرادات الفترة", value: money(revenue) },
+    { label: "المصروفات المصروفة", value: money(paidExpenses) },
+    { label: "طلبات قيد الاعتماد/الصرف", value: money(pendingTotal) },
+    { label: "صافي الفترة", value: money(revenue - paidExpenses) },
+    { label: "الرصيد النقدي الحالي (كل الفترات)", value: money(summary?.cash_balance) },
+    { label: "إجمالي المتأخرات (كل الفترات)", value: money(summary?.arrears) },
+  ];
+
+  const reportDoc = () => (
+    <FinancialReportPdfDoc
+      from={from}
+      to={to}
+      kpis={reportKpis()}
+      summaryRevenue={revenueByType.map(({ label, value }) => [label, value] as [string, number])}
+      summaryExpenses={expensesByCategory.map(({ label, value }) => [label, value] as [string, number])}
+      revenueRows={revenueDetailRows()}
+      expenseRows={expenseDetailRows()}
+      monthlyRows={monthly.map(([m, v]) => [m, v.revenue, v.paid])}
+      arrearsRows={arrearsByMember.map(({ member, arrears }) => [
+        `${member.member_no ?? ""} — ${member.full_name}`,
+        money(arrears),
+      ])}
+    />
+  );
+
   async function exportFullPdf() {
     try {
-      await exportNodeToPdf(
-        <FinancialReportPdfDoc
-          from={from}
-          to={to}
-          kpis={[
-            { label: "إيرادات الفترة", value: money(revenue) },
-            { label: "المصروفات المصروفة", value: money(paidExpenses) },
-            { label: "طلبات قيد الاعتماد/الصرف", value: money(pendingTotal) },
-            { label: "صافي الفترة", value: money(revenue - paidExpenses) },
-            { label: "الرصيد النقدي الحالي (كل الفترات)", value: money(summary?.cash_balance) },
-            { label: "إجمالي المتأخرات (كل الفترات)", value: money(summary?.arrears) },
-          ]}
-          revenueRows={revenueDetailRows()}
-          expenseRows={expenseDetailRows()}
-          monthlyRows={monthly.map(([m, v]) => [m, v.revenue, v.paid])}
-          arrearsRows={arrearsByMember.map(({ member, arrears }) => [
-            `${member.member_no ?? ""} — ${member.full_name}`,
-            money(arrears),
-          ])}
-        />,
-        `financial-report-${from}_to_${to}`,
-      );
+      await exportNodeToPdf(reportDoc(), `financial-report-${from}_to_${to}`);
       toast.success("تم إنشاء ملف PDF");
     } catch (e) {
       toast.error("تعذر إنشاء PDF: " + (e instanceof Error ? e.message : ""));
@@ -261,7 +266,7 @@ function ReportsPage() {
           desc="صورة واضحة عن أموال الصندوق خلال الفترة التي تختارها"
           actions={
             <>
-              <Button variant="outline" onClick={() => window.print()}>
+              <Button variant="outline" onClick={() => setPrintOpen(true)}>
                 <Printer /> طباعة التقرير
               </Button>
               <Button variant="outline" onClick={exportSummary}>
@@ -299,11 +304,7 @@ function ReportsPage() {
         </div>
       </Card>
 
-      <div className="print-area space-y-4">
-        <div className="hidden print:block">
-          <PrintHeader title="التقرير المالي" sub={`من ${fmtDate(from)} إلى ${fmtDate(to)}`} />
-        </div>
-
+      <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
           <Kpi label="إيرادات الفترة" value={money(revenue)} icon={TrendingUp} tone="success" />
           <Kpi
@@ -499,6 +500,27 @@ function ReportsPage() {
           </div>
         </Card>
       </div>
+
+      {printOpen && (
+        <div className="fixed inset-0 z-[100] overflow-auto bg-muted/70 p-4 backdrop-blur-sm">
+          <div className="no-print mx-auto mb-3 flex max-w-[820px] flex-wrap items-center justify-between gap-2 rounded-xl border bg-card p-2 shadow-card">
+            <p className="px-2 text-sm font-semibold">
+              معاينة الطباعة — يُطبع المستند الرسمي أدناه فقط، بدون فلاتر أو واجهة التطبيق
+            </p>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => window.print()}>
+                <Printer /> طباعة
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setPrintOpen(false)}>
+                إغلاق
+              </Button>
+            </div>
+          </div>
+          <div className="print-area mx-auto w-fit overflow-hidden rounded-lg bg-white shadow-card">
+            {reportDoc()}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
